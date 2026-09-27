@@ -2,6 +2,9 @@ import { getTenantBySlug } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import JoinForm from "./join-form";
 
+// Always show the current program (owner may change it anytime).
+export const dynamic = "force-dynamic";
+
 export default async function JoinPage({ params, searchParams }: { params: { slug: string }; searchParams: { ref?: string } }) {
   const tenant = await getTenantBySlug(params.slug);
   if (!tenant) notFound();

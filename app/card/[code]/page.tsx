@@ -4,6 +4,10 @@ import { notFound } from "next/navigation";
 import { updatePreferences } from "./actions";
 import CopyButton from "./copy-button";
 
+// A loyalty card must always show live data (a customer refreshes right after
+// staff stamp them), so never statically prerender this route.
+export const dynamic = "force-dynamic";
+
 // Wallet card — design B.
 // Top: business logo + name / referral code. Middle: reward badge + progress
 // (stamps, points, or the gold REWARD READY panel). Bottom: customer name.
