@@ -1,12 +1,14 @@
 import { createServiceSupabase } from "@/lib/supabase";
 import { hasConsent } from "@/lib/campaigns";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { updatePreferences } from "./actions";
 import CopyButton from "./copy-button";
 
 // A loyalty card must always show live data (a customer refreshes right after
 // staff stamp them), so never statically prerender this route.
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 // Wallet card — design B.
 // Top: business logo + name / referral code. Middle: reward badge + progress
@@ -40,6 +42,8 @@ function initials(name: string): string {
 }
 
 export default async function CardPage({ params }: { params: { code: string } }) {
+  headers(); // Dynamic API: guarantees per-request rendering, never a stale prerender.
+  const renderedAt = new Date().toISOString();
   const svc = createServiceSupabase();
   const code = params.code.toUpperCase();
   const { data: customer } = await svc.from("customers").select("*, customer_programs(*)").eq("referral_code", code).single();
@@ -72,6 +76,7 @@ export default async function CardPage({ params }: { params: { code: string } })
 
   return (
     <div className="max-w-md mx-auto px-4 py-8">
+      <span className="hidden" data-rendered-at={renderedAt} />
       {/* ============ THE CARD ============ */}
       <div
         className="rounded-3xl p-5 mb-4 shadow-xl"
