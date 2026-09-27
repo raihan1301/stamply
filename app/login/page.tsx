@@ -2,12 +2,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@supabase/ssr";
+import { requestCardLinkAction } from "./actions";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [contact, setContact] = useState("");
+  const [resendMsg, setResendMsg] = useState("");
+  const [resendBusy, setResendBusy] = useState(false);
   const router = useRouter();
 
   async function onSubmit(e: React.FormEvent) {
@@ -21,6 +25,18 @@ export default function LoginPage() {
     if (error) { setError("Wrong email or password. Please try again."); setBusy(false); return; }
     router.push("/post-login");
     router.refresh();
+  }
+
+  async function onResend(e: React.FormEvent) {
+    e.preventDefault();
+    setResendBusy(true); setResendMsg("");
+    try {
+      const { message } = await requestCardLinkAction(new FormData(e.target as HTMLFormElement));
+      setResendMsg(message);
+    } catch {
+      setResendMsg("Something went wrong. Please try again.");
+    }
+    setResendBusy(false);
   }
 
   return (
@@ -46,6 +62,27 @@ export default function LoginPage() {
         <p className="text-xs text-stone-400 mt-6 text-center">
           Customers: you don't need to sign in — open your personal card link from your shop.
         </p>
+        <div className="mt-6 pt-6 border-t border-stone-200">
+          <h2 className="font-semibold mb-1">Lost your card link?</h2>
+          <p className="text-sm text-ink-500 mb-3">
+            Enter your phone number or email and we'll text or email your loyalty card link to you.
+          </p>
+          <form onSubmit={onResend} className="space-y-3">
+            <input
+              className="input"
+              name="contact"
+              required
+              value={contact}
+              onChange={(e) => setContact(e.target.value)}
+              placeholder="Phone number or email"
+              autoComplete="off"
+            />
+            <button className="btn-secondary w-full" disabled={resendBusy}>
+              {resendBusy ? "Sending…" : "Text me my link"}
+            </button>
+          </form>
+          {resendMsg && <p className="text-sm text-ink-500 mt-3">{resendMsg}</p>}
+        </div>
       </div>
     </div>
   );
