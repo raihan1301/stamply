@@ -43,7 +43,6 @@ function initials(name: string): string {
 
 export default async function CardPage({ params }: { params: { code: string } }) {
   headers(); // Dynamic API: guarantees per-request rendering, never a stale prerender.
-  const renderedAt = new Date().toISOString();
   const svc = createServiceSupabase();
   const code = params.code.toUpperCase();
   const { data: customer } = await svc.from("customers").select("*, customer_programs(*)").eq("referral_code", code).single();
@@ -76,7 +75,6 @@ export default async function CardPage({ params }: { params: { code: string } })
 
   return (
     <div className="max-w-md mx-auto px-4 py-8">
-      <span className="hidden" data-rendered-at={renderedAt} />
       {/* ============ THE CARD ============ */}
       <div
         className="rounded-3xl p-5 mb-4 shadow-xl"
