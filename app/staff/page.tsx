@@ -1,7 +1,7 @@
 import { requireUser, membershipFor, getTenantBySlug } from "@/lib/auth";
 import { createServiceSupabase } from "@/lib/supabase";
 import { redirect } from "next/navigation";
-import { AwardPanel, RedeemButton } from "./panels";
+import { AwardPanel, RedeemButton, RedeemByCode } from "./panels";
 
 export default async function StaffPage({ searchParams }: { searchParams: { t?: string; q?: string; c?: string } }) {
   const user = await requireUser();
@@ -20,7 +20,7 @@ export default async function StaffPage({ searchParams }: { searchParams: { t?: 
   let customer: any = null;
   let results: any[] = [];
   if (searchParams.c) {
-    const { data } = await svc.from("customers").select("*, customer_programs(*), rewards!rewards_customer_id_fkey(id, label, status, issued_at)").eq("id", searchParams.c).eq("tenant_id", tenant.id).single();
+    const { data } = await svc.from("customers").select("*, customer_programs(*), rewards!rewards_customer_id_fkey(*)").eq("id", searchParams.c).eq("tenant_id", tenant.id).single();
     customer = data;
   } else if (q) {
     const { data } = await svc.from("customers").select("id, name, phone").eq("tenant_id", tenant.id)
@@ -40,6 +40,8 @@ export default async function StaffPage({ searchParams }: { searchParams: { t?: 
     <div className="max-w-2xl mx-auto px-4 py-6">
       <h1 className="text-xl font-bold mb-1">Staff — {tenant.name}</h1>
       <p className="text-sm text-ink-500 mb-4">Signed in as {user.name}</p>
+
+      <RedeemByCode slug={slug} />
 
       <form className="flex gap-2 mb-4">
         <input type="hidden" name="t" value={slug} />
@@ -73,8 +75,8 @@ export default async function StaffPage({ searchParams }: { searchParams: { t?: 
                 <p className="text-sm font-bold text-green-800 mb-2">🎁 Rewards ready to redeem:</p>
                 {(customer.rewards ?? []).filter((r: any) => r.status === "issued").map((r: any) => (
                   <div key={r.id} className="flex justify-between items-center py-1">
-                    <span className="text-sm">{r.label}</span>
-                    <RedeemButton slug={slug} rewardId={r.id} label={r.label} />
+                    <span className="text-sm">{r.label}{r.verification_code ? <span className="ml-2 font-mono font-bold tracking-widest text-green-800">{r.verification_code}</span> : null}</span>
+                    <RedeemButton slug={slug} rewardId={r.id} code={r.verification_code} label={r.label} />
                   </div>
                 ))}
               </div>

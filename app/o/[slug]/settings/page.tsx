@@ -3,6 +3,7 @@ import { createServiceSupabase } from "@/lib/supabase";
 import { redirect } from "next/navigation";
 import { inviteStaff, removeStaff } from "./actions";
 import InviteForm from "./invite-form";
+import BrandForm from "./brand-form";
 
 export default async function SettingsPage({ params }: { params: { slug: string } }) {
   const user = await requireUser();
@@ -18,6 +19,12 @@ export default async function SettingsPage({ params }: { params: { slug: string 
     <div className="max-w-2xl">
       <h2 className="text-xl font-bold mb-1">Settings</h2>
       <p className="text-ink-500 mb-6">Your team and locations.</p>
+
+      <div className="card mb-6">
+        <h3 className="font-bold mb-3">Brand & card</h3>
+        <p className="text-sm text-ink-500 mb-4">Your logo and color appear on every customer's wallet card.</p>
+        <BrandForm slug={params.slug} tenant={tenant} />
+      </div>
 
       <div className="card mb-6">
         <h3 className="font-bold mb-3">Team</h3>

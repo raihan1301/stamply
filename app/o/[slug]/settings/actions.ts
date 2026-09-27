@@ -48,3 +48,42 @@ export async function removeStaff(formData: FormData) {
   await svc.from("memberships").delete().eq("id", String(formData.get("membership_id"))).eq("tenant_id", tenant.id);
   revalidatePath(`/o/${slug}/settings`);
 }
+
+// Brand & card: logo upload (public storage bucket, images only) + brand color + address/hours.
+export async function updateBrand(formData: FormData) {
+  const slug = String(formData.get("slug"));
+  const { u, tenant } = await requireOwner(slug);
+  const svc = createServiceSupabase();
+
+  const brandColor = String(formData.get("brand_color") ?? "#1e4d3b");
+  if (!/^#[0-9a-fA-F]{6}$/.test(brandColor)) throw new Error("Pick a valid color.");
+  const address = String(formData.get("address") ?? "").trim() || null;
+  const hours = String(formData.get("hours") ?? "").trim() || null;
+
+  let logoUrl: string | undefined;
+  const file = formData.get("logo");
+  if (file instanceof File && file.size > 0) {
+    if (!file.type.startsWith("image/")) throw new Error("Logo must be an image file.");
+    if (file.size > 2 * 1024 * 1024) throw new Error("Logo must be smaller than 2 MB.");
+    const { error: bucketErr } = await svc.storage.createBucket("tenant-logos", { public: true });
+    if (bucketErr && !/already exists|duplicate/i.test(bucketErr.message)) {
+      throw new Error("Could not set up logo storage. Please try again.");
+    }
+    const ext = (file.name.split(".").pop() || "png").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "png";
+    const path = `${tenant.id}/logo.${ext}`;
+    const { error: upErr } = await svc.storage.from("tenant-logos").upload(path, file, { upsert: true, contentType: file.type });
+    if (upErr) throw new Error("Could not upload the logo. Please try again.");
+    logoUrl = svc.storage.from("tenant-logos").getPublicUrl(path).data.publicUrl;
+  }
+
+  const patch: Record<string, any> = { brand_color: brandColor, address, hours };
+  if (logoUrl) patch.logo_url = logoUrl;
+  const { error } = await svc.from("tenants").update(patch).eq("id", tenant.id);
+  if (error) throw new Error("Could not save brand settings. Please try again.");
+  await svc.from("audit_events").insert({
+    tenant_id: tenant.id, actor_user_id: u.id, action: "BRAND_UPDATED",
+    target_type: "tenant", target_id: tenant.id,
+    reason: logoUrl ? "Logo + brand settings updated" : "Brand settings updated",
+  });
+  revalidatePath(`/o/${slug}/settings`);
+}

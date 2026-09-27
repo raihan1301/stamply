@@ -15,6 +15,16 @@ function newIdempotencyKey() {
   return `key_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+// Short human-readable reward code, e.g. BB-8X2Q. Unambiguous alphabet (no 0/O, 1/I/L).
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+export function makeVerificationCode(tenantName: string): string {
+  const prefix = (tenantName.replace(/[^A-Za-z]/g, "").substring(0, 2) || "SM").toUpperCase();
+  const bytes = new Uint8Array(4);
+  crypto.getRandomValues(bytes);
+  const suffix = Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
+  return `${prefix}-${suffix}`;
+}
+
 export interface AwardInput {
   tenantId: string;
   customerId: string;
@@ -31,7 +41,7 @@ export interface AwardResult {
   code?: string;
   stamps?: number;
   points?: number;
-  rewardIssued?: { id: string; label: string } | null;
+  rewardIssued?: { id: string; label: string; verification_code?: string } | null;
 }
 
 /** Award one visit (or points) to a customer. Staff-authenticated only. */
@@ -109,16 +119,34 @@ export async function awardVisit(input: AwardInput): Promise<AwardResult> {
     ? newStamps >= tenant.stamp_threshold
     : newPoints >= tenant.points_threshold;
   if (thresholdHit) {
-    const { data: reward } = await svc.from("rewards").insert({
+    // Each reward gets a short single-use verification code the customer shows at checkout.
+    let code = makeVerificationCode(tenant.name ?? "SM");
+    for (let tries = 0; tries < 3; tries++) {
+      const { data: clash } = await svc.from("rewards").select("id").eq("verification_code", code).limit(1).maybeSingle();
+      if (!clash) break;
+      code = makeVerificationCode(tenant.name ?? "SM");
+    }
+    const rewardRow: Record<string, any> = {
       tenant_id: input.tenantId,
       customer_id: input.customerId,
       label: tenant.reward_label,
       reward_type: tenant.reward_type,
       amount_cents: tenant.reward_amount_cents,
       status: "issued",
-    }).select("id, label").single();
+      verification_code: code,
+    };
+    let reward: any = null;
+    const first = await svc.from("rewards").insert(rewardRow).select("id, label, verification_code").single();
+    reward = first.data;
+    if (!reward) {
+      // Pre-migration safety: if the verification_code column doesn't exist yet
+      // (migration 006 not applied), issue the reward without a code instead of failing.
+      delete rewardRow.verification_code;
+      const retry = await svc.from("rewards").insert(rewardRow).select("id, label").single();
+      reward = retry.data;
+    }
     if (reward) {
-      rewardIssued = { id: reward.id, label: reward.label };
+      rewardIssued = { id: reward.id, label: reward.label, verification_code: reward.verification_code };
       await svc.from("ledger_events").insert({
         tenant_id: input.tenantId,
         customer_id: input.customerId,
@@ -126,7 +154,7 @@ export async function awardVisit(input: AwardInput): Promise<AwardResult> {
         amount_cents: 0,
         idempotency_key: newIdempotencyKey(),
         actor_user_id: input.actorUserId,
-        note: `Reward issued: ${tenant.reward_label}`,
+        note: `Reward issued: ${tenant.reward_label} (code ${reward.verification_code ?? "n/a"})`,
       });
       // Reset progress for the next cycle
       await svc.from("customer_programs").update({
@@ -195,6 +223,46 @@ export async function redeemReward(input: { tenantId: string; rewardId: string; 
   await svc.from("audit_events").insert({
     tenant_id: input.tenantId, actor_user_id: input.actorUserId,
     action: "REWARD_REDEEMED", target_type: "reward", target_id: input.rewardId,
+  });
+  return { ok: true, label: reward.label };
+}
+
+/** Redeem an issued reward by its verification code (the code on the customer's card).
+ *  Staff-authenticated only. Atomic: code + issued status flip in one statement, so a
+ *  code can never be redeemed twice. */
+export async function redeemRewardByCode(input: { tenantId: string; code: string; actorUserId: string }) {
+  const svc = createServiceSupabase();
+  const code = input.code.trim().toUpperCase();
+  if (!code) return { ok: false, error: "Enter the code shown on the customer's card.", code: "BAD_CODE" };
+  const { data: tenant } = await svc.from("tenants").select("redemption_paused, status").eq("id", input.tenantId).single();
+  if (tenant?.redemption_paused) return { ok: false, error: "Redemptions are paused right now.", code: "REDEMPTION_PAUSED" };
+  if (tenant?.status === "suspended") return { ok: false, error: "This business is paused.", code: "TENANT_SUSPENDED" };
+
+  const { data: reward, error } = await svc.from("rewards")
+    .update({ status: "redeemed", redeemed_at: new Date().toISOString() })
+    .eq("tenant_id", input.tenantId)
+    .eq("verification_code", code)
+    .eq("status", "issued")
+    .select("id, customer_id, label").single();
+  if (error || !reward) return { ok: false, error: "Code not found or already used.", code: "REWARD_ALREADY_USED" };
+
+  await svc.from("ledger_events").insert({
+    tenant_id: input.tenantId,
+    customer_id: reward.customer_id,
+    type: "REWARD_REDEEMED",
+    amount_cents: 0,
+    idempotency_key: newIdempotencyKey(),
+    actor_user_id: input.actorUserId,
+    note: `Redeemed by code ${code}: ${reward.label}`,
+  });
+  const prog = await getProgress(input.tenantId, reward.customer_id);
+  await svc.from("customer_programs").update({
+    rewards_redeemed: prog.rewards_redeemed + 1,
+    updated_at: new Date().toISOString(),
+  }).eq("customer_id", reward.customer_id);
+  await svc.from("audit_events").insert({
+    tenant_id: input.tenantId, actor_user_id: input.actorUserId,
+    action: "REWARD_REDEEMED", target_type: "reward", target_id: reward.id, reason: `code ${code}`,
   });
   return { ok: true, label: reward.label };
 }

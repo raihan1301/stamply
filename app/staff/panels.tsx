@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { awardVisitAction, redeemRewardAction } from "./actions";
+import { awardVisitAction, redeemRewardAction, redeemRewardByCodeAction } from "./actions";
 
 export function AwardPanel({ slug, customerId, rewardMode }: { slug: string; customerId: string; rewardMode: string }) {
   const [amount, setAmount] = useState("");
@@ -34,12 +34,13 @@ export function AwardPanel({ slug, customerId, rewardMode }: { slug: string; cus
   );
 }
 
-export function RedeemButton({ slug, rewardId, label }: { slug: string; rewardId: string; label: string }) {
+export function RedeemButton({ slug, rewardId, code, label }: { slug: string; rewardId: string; code?: string | null; label: string }) {
   const [done, setDone] = useState(false);
   const [err, setErr] = useState("");
   async function redeem() {
     if (!confirm(`Redeem "${label}" now?`)) return;
-    const r = await redeemRewardAction(slug, rewardId);
+    // Prefer the single-use verification code when the column exists (migration 006).
+    const r = code ? await redeemRewardByCodeAction(slug, code) : await redeemRewardAction(slug, rewardId);
     if (r.ok) setDone(true); else setErr(r.error ?? "Failed");
   }
   if (done) return <span className="text-green-600 font-semibold text-sm">✓ Redeemed</span>;
@@ -48,5 +49,42 @@ export function RedeemButton({ slug, rewardId, label }: { slug: string; rewardId
       <button onClick={redeem} className="btn-primary text-xs !py-1.5">Redeem</button>
       {err && <span className="text-red-600 text-xs ml-2">{err}</span>}
     </span>
+  );
+}
+
+// Walk-up redemption: customer shows their card, staff types the code. No search needed.
+export function RedeemByCode({ slug }: { slug: string }) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  async function redeem() {
+    setBusy(true); setMsg(null);
+    const r = await redeemRewardByCodeAction(slug, code);
+    setBusy(false);
+    if (r.ok) {
+      setCode("");
+      setMsg({ ok: true, text: `✓ Redeemed: ${r.label}` });
+    } else {
+      setMsg({ ok: false, text: r.error ?? "Could not redeem." });
+    }
+  }
+  return (
+    <div className="card mb-4">
+      <h3 className="font-bold mb-1">Redeem a reward code</h3>
+      <p className="text-sm text-ink-500 mb-3">Customer shows their card — type the code (e.g. BB-8X2Q).</p>
+      <div className="flex gap-2">
+        <input
+          className="input uppercase tracking-widest"
+          placeholder="BB-8X2Q"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          maxLength={12}
+        />
+        <button className="btn-primary whitespace-nowrap" disabled={busy || !code.trim()} onClick={redeem}>
+          {busy ? "…" : "Redeem"}
+        </button>
+      </div>
+      {msg && <p className={`mt-3 text-sm font-semibold ${msg.ok ? "text-green-700" : "text-red-600"}`}>{msg.text}</p>}
+    </div>
   );
 }

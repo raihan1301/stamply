@@ -1,7 +1,7 @@
 "use server";
 import { requireUser, membershipFor } from "@/lib/auth";
 import { createServiceSupabase } from "@/lib/supabase";
-import { awardVisit, redeemReward, getProgress } from "@/lib/loyalty";
+import { awardVisit, redeemReward, redeemRewardByCode, getProgress } from "@/lib/loyalty";
 import { evaluateEventTriggers } from "@/lib/triggers";
 
 async function staffTenant(slug: string) {
@@ -31,4 +31,10 @@ export async function awardVisitAction(slug: string, customerId: string, amountD
 export async function redeemRewardAction(slug: string, rewardId: string) {
   const { u, tenant } = await staffTenant(slug);
   return redeemReward({ tenantId: tenant.id, rewardId, actorUserId: u.id });
+}
+
+// Redeem by the code shown on the customer's card (e.g. BB-8X2Q). Atomic single-use.
+export async function redeemRewardByCodeAction(slug: string, code: string) {
+  const { u, tenant } = await staffTenant(slug);
+  return redeemRewardByCode({ tenantId: tenant.id, code, actorUserId: u.id });
 }
